@@ -39,7 +39,10 @@ function calculateTextSimilarity(str1: string, str2: string): number {
 // Netlify Functions API路径
 const NETLIFY_FUNCTIONS_BASE = import.meta.env.DEV
   ? '/.netlify/functions'  // 开发环境
-  : '/.netlify/functions'; // 生产环境
+  : 'https://myenglishai.netlify.app/.netlify/functions'; // 生产环境
+
+// API Key 配置
+const apiKey = import.meta.env.VITE_DASHSCOPE_API_KEY;
 
 export const generateTeacherFeedback = async (
   context: string,
@@ -171,113 +174,31 @@ export const generateDetailedFeedback = async (
   }
 
   try {
-    const modelId = 'qwen-turbo';
-    const prompt = `
-      你是一位友好的英语老师，正在指导一个7岁的小学生${USER_NAME}学习英语朗读。
-      学生需要朗读的内容是："${expectedText}"
-      学生的实际朗读是："${userTranscript}"
-      测评得分：${score}分（满分100分）
-      是否通过：${isCorrect ? '通过' : '需要改进'}
-
-      请根据得分和朗读内容给出个性化的评价和建议：
-
-      如果得分很高（90-100分）：表扬具体的优点，如发音清晰、语调自然等
-      如果得分中等（60-89分）：指出进步之处，同时给出具体改进建议
-      如果得分较低（0-59分）：鼓励为主，指出主要需要改进的地方
-
-      请用中文给出：
-      1. 一句个性化的鼓励性评价（15-25字），不要总是说"读得非常完美"
-      2. 2-3条具体的提升建议（每条建议10-15字），每条建议内容要各不相同
-
-      格式要求：
-      评价：[你的个性化评价]
-      建议1：[第一条建议]
-      建议2：[第二条建议]
-      建议3：[第三条建议，可选]
-
-      重要：建议内容不能重复，重点关注不同的发音方面
-
-      示例：
-      评价：你的发音很清晰，节奏掌握得不错！
-      建议1：注意单词间的连读
-      建议2：尝试更有感情地朗读
-    `;
-
-    const response = await fetch(BASE_URL, {
+    // 调用 Netlify Functions 的 ai-feedback endpoint
+    const response = await fetch(`${NETLIFY_FUNCTIONS_BASE}/ai-feedback`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-DashScope-SSE': 'disable'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: modelId,
-        input: {
-          messages: [
-            {
-              role: 'user',
-              content: prompt
-            }
-          ]
-        },
-        parameters: {
-          temperature: 0.7,
-          max_tokens: 200
-        }
+        expectedText,
+        userTranscript,
+        evaluationResult: { score, isCorrect },
+        isWord
       })
     });
 
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`);
+      throw new Error(`AI feedback request failed: ${response.statusText}`);
     }
 
     const data = await response.json();
-    let content = '';
-    
-    if (data.output && data.output.choices && data.output.choices.length > 0) {
-      content = data.output.choices[0].message?.content || data.output.choices[0].message?.text || '';
-    } else if (data.output?.text) {
-      content = data.output.text;
-    }
-    
-    // 解析AI返回的内容
-    const suggestions: string[] = [];
-    let message = `得分：${score}分`;
-    
-    if (content) {
-      // 提取评价
-      const messageMatch = content.match(/评价[：:]\s*(.+?)(?:\n|建议|$)/);
-      if (messageMatch) {
-        message = messageMatch[1].trim();
-      }
-      
-      // 提取建议
-      const suggestionMatches = content.matchAll(/建议\d+[：:]\s*(.+?)(?:\n|建议|$)/g);
-      for (const match of suggestionMatches) {
-        suggestions.push(match[1].trim());
-      }
-    }
-    
-    // 如果没有提取到建议，使用默认建议
-    if (suggestions.length === 0) {
-      if (score < 60) {
-        suggestions.push('注意每个音节的发音清晰度');
-        suggestions.push('尝试放慢速度，确保每个音都发准确');
-        if (!isWord) {
-          suggestions.push('注意单词之间的连读和停顿');
-        }
-      } else if (score < 80) {
-        suggestions.push('发音不错，继续练习会让它更完美');
-        suggestions.push('注意音调的准确性');
-      } else {
-        suggestions.push('发音很棒！继续保持！');
-      }
-    }
-    
+
+    // Netlify Functions 返回的数据格式
     return {
-      message: message || (isCorrect ? `太棒了！得分：${score}分` : `再试试看！得分：${score}分`),
-      score,
-      suggestions: suggestions.slice(0, 3) // 最多3条建议
+      message: data.message || (isCorrect ? `太棒了！得分：${score}分` : `再试试看！得分：${score}分`),
+      score: data.score || score,
+      suggestions: data.suggestions || []
     };
   } catch (error) {
     console.error("Qwen API Error:", error);
