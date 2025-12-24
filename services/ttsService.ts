@@ -1,8 +1,7 @@
-// DashScope TTS 配置
-const DASHSCOPE_API_KEY = import.meta.env.VITE_DASHSCOPE_API_KEY;
-const DASHSCOPE_BASE_URL = import.meta.env.DEV
-  ? '/api/dashscope/api/v1'  // 开发环境使用代理
-  : 'https://dashscope.aliyuncs.com/api/v1'; // 生产环境直接调用
+// Netlify Functions TTS 配置
+const NETLIFY_FUNCTIONS_BASE = import.meta.env.DEV
+  ? ''  // 开发环境相对路径
+  : 'https://myenglishai.netlify.app'; // 生产环境完整URL
 
 // 音色配置
 const VOICE_CONFIG = {
@@ -10,64 +9,45 @@ const VOICE_CONFIG = {
   'en-US': 'Alex'    // 英文音色
 };
 
-// 使用 DashScope API 进行高质量语音合成
+// 使用 Netlify Functions 调用 DashScope API 进行高质量语音合成
 export const speakText = async (text: string, lang: string = 'zh-CN', userInitiated: boolean = false): Promise<void> => {
-  console.log('speakText called with:', { text, lang, hasApiKey: !!DASHSCOPE_API_KEY });
-
-  if (!DASHSCOPE_API_KEY) {
-    console.warn('DashScope API Key not configured');
-    throw new Error('AI语音服务未配置，请联系技术支持设置API密钥');
-  }
+  console.log('speakText called with:', { text, lang, userInitiated });
 
   try {
     const requestBody = {
-      model: 'qwen3-tts-flash',
-      input: {
-        text: text,
-        voice: VOICE_CONFIG[lang] || 'Cherry',
-        language_type: lang === 'zh-CN' ? 'Chinese' : 'English'
-      }
+      text: text,
+      voice: VOICE_CONFIG[lang] || 'Cherry'
     };
 
-    console.log('DashScope TTS Request:', {
-      url: `${DASHSCOPE_BASE_URL}/services/aigc/multimodal/generation`,
-      body: requestBody,
-      hasApiKey: !!DASHSCOPE_API_KEY
+    console.log('Netlify TTS Request:', {
+      url: `${NETLIFY_FUNCTIONS_BASE}/.netlify/functions/tts`,
+      body: requestBody
     });
 
-    // 使用正确的TTS endpoint
-    const response = await fetch(`${DASHSCOPE_BASE_URL}/services/aigc/multimodal-generation/generation`, {
+    // 调用 Netlify Functions TTS endpoint
+    const response = await fetch(`${NETLIFY_FUNCTIONS_BASE}/.netlify/functions/tts`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
-        'X-DashScope-SSE': 'disable'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('DashScope API Error Response:', {
+      console.error('Netlify TTS Error Response:', {
         status: response.status,
         statusText: response.statusText,
         body: errorText
       });
-      throw new Error(`DashScope API request failed: ${response.status} - ${errorText}`);
+      throw new Error(`TTS request failed: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('DashScope API Success Response:', data);
+    console.log('Netlify TTS Success Response:', data);
 
-    // 检查不同的响应格式
-    let audioUrl = null;
-    if (data.output && data.output.audio_url) {
-      audioUrl = data.output.audio_url;
-    } else if (data.output && data.output.audio && data.output.audio.url) {
-      audioUrl = data.output.audio.url;
-    } else if (data.audio_url) {
-      audioUrl = data.audio_url;
-    }
+    // 获取音频URL
+    const audioUrl = data.audioUrl;
 
     if (audioUrl) {
       console.log('Found audio URL:', audioUrl);
