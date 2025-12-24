@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+// fetch is available globally in Node.js 18+
 
 exports.handler = async (event, context) => {
   // 允许跨域请求
